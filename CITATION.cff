@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "sdt-netval: topological validation of LLM-driven Social Digital Twins"
+type: software
+version: 0.1.0
+license: MIT
+repository-code: "https://github.com/fabrifurna/sdt-netval"
+authors:
+  - alias: "fabrifurna"
+abstract: >-
+  Python library that validates the macroscopic network topology of LLM-based
+  agent-based social simulations (power-law exponent, modularity, clustering) and
+  quantifies how recommender systems perturb it, through baseline-vs-condition
+  non-parametric tests.
+keywords:
+  - social network analysis
+  - agent-based modelling
+  - digital twins
+  - LLM simulation
