@@ -10,10 +10,14 @@ look at (degree distribution, community structure, clustering). It can also comp
 several experimental conditions, for example different recommender systems, against a
 baseline and tell you whether the differences are more than run-to-run noise.
 
-It was written for a master's thesis at the University of Pisa on the
-Y-Social simulator (Tomašević et al., 2024) and a related platform from
-CNR, but nothing in it is specific to those two. Anything that gives you a directed
-edge list will do.
+It was developed first of all for [Y Social](https://arxiv.org/abs/2408.00818), the
+LLM-powered social media digital twin built by Giulio Rossetti's group at CNR-ISTI
+(Rossetti et al., 2024), as part of a master's thesis at the University of Pisa
+supervised by Prof. Rossetti. The SQLite reader expects the Y Social database layout,
+and all the thesis experiments are Y Social runs: baseline and recommender-system
+runs from the CNR group, plus the Voat-like forum runs of Tomašević et al. The
+analysis itself is not tied to Y Social: anything that gives you a directed edge list
+will do.
 
 ## Installation
 
@@ -196,7 +200,7 @@ instead of a DataFrame: `compare_to_baseline(runs, "c0")`.
 ## Reproducing the thesis analyses
 
 The `scripts/` folder and the notebook are the thesis-specific layer: paths, condition
-labels and the choice of figures for the two datasets used there (the Y-Social/Voat
+labels and the choice of figures for the two datasets used there (the Voat-like forum
 runs from Tomašević et al., and the CNR baseline and recommender-system runs). The raw
 simulation files are large and are not in the repository; `data/` only keeps the folder
 layout.
@@ -243,6 +247,18 @@ src/sdt_netval/
 
 If this is useful in your work, `CITATION.cff` has the details GitHub needs to
 generate a citation.
+
+## References
+
+- Giulio Rossetti, Massimo Stella, Rémy Cazabet, Katherine Abramski, Erica Cau,
+  Salvatore Citraro, Andrea Failla, Riccardo Improta, Virginia Morini and Valentina
+  Pansanella. *Y Social: an LLM-powered Social Media Digital Twin*. August 2024.
+  arXiv:2408.00818.
+- Aleksandar Tomašević, Darja Cvetković, Sara Major, Slobodan Maletić, Miroslav
+  Anelković, Ana Vranić, Boris Stupovski, Dušan Vudragović, Aleksandar Bogojević and
+  Marija Mitrović Dankulov. *Towards Operational Validation of LLM-Agent Social
+  Simulations: A Replicated Study of a Reddit-like Technology Forum*. December 2025.
+  arXiv:2508.21740.
 
 ## License
 
