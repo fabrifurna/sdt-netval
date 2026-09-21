@@ -1,239 +1,27 @@
-"""Stage B hypothesis testing via Mann-Whitney U test — entry point.
+"""Stage B hypothesis testing — entry point.
 
-Tests whether modularity differs significantly between the baseline condition (c0)
-and each experimental condition, using a non-parametric two-sided test appropriate
-for N=10 observations per group.
+Mann-Whitney U test of every experimental condition against the baseline, on the
+key topological metrics, with Holm correction for multiple comparisons and
+Cliff's delta as effect size. The statistics live in the library
+(``sdt_netval.analysis.compare_to_baseline``); this script only wires the two
+thesis datasets to it.
 
 Usage:
-    python scripts/05_stage_b_hypothesis.py
+    python scripts/05_stage_b_hypothesis.py legacy   # Tomašević: c0 vs c1..c10 (default)
+    python scripts/05_stage_b_hypothesis.py cnr      # CNR: Stage A baseline vs 4 RecSys
 """
 
+import argparse
 import logging
 import os
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Union
 
 import pandas as pd
-from scipy import stats
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
 
-logger = logging.getLogger(__name__)
-
-TEST_CONDITIONS = ["c1", "c3", "c4", "c8"]
-CONDITION_LABELS = {
-    "c0": "Baseline",
-    "c1": "Neutral Persona",
-    "c3": "Low Temperature",
-    "c4": "High Temperature",
-    "c8": "Aggressive RecSys",
-}
-
-
-class StageBHypothesisTesting:
-    """Executes Mann-Whitney U tests for Stage B modularity sensitivity.
-
-    Compares the modularity distribution of the baseline condition (c0) against
-    each experimental condition. Mann-Whitney U is used instead of a t-test
-    because N=10 per group is insufficient to assume normality.
-
-    Args:
-        csv_path: Path to the raw CSV file (data/01_processed/stage_b_raw.csv).
-
-    Raises:
-        FileNotFoundError: If the CSV file does not exist.
-        ValueError: If the CSV is empty.
-    """
-
-    def __init__(self, csv_path: Union[str, Path]) -> None:
-        self.csv_path = Path(csv_path).resolve()
-        if not self.csv_path.exists():
-            raise FileNotFoundError(f"CSV file not found: '{self.csv_path}'")
-
-        self.df = pd.read_csv(self.csv_path)
-        if self.df.empty:
-            raise ValueError("CSV file is empty.")
-
-        self.results: List[Dict] = []
-        logger.info("%d records loaded for hypothesis testing", len(self.df))
-
-    @staticmethod
-    def _significance_flag(p_value: float) -> str:
-        """Convert a p-value to a standard academic significance marker.
-
-        Args:
-            p_value: p-value from a statistical test.
-
-        Returns:
-            '***' (p<0.001), '**' (p<0.01), '*' (p<0.05), or 'ns'.
-        """
-        if p_value < 0.001:
-            return "***"
-        elif p_value < 0.01:
-            return "**"
-        elif p_value < 0.05:
-            return "*"
-        else:
-            return "ns"
-
-    def run_tests(
-        self,
-        baseline_condition: str = "c0",
-        test_conditions: Optional[List[str]] = None,
-    ) -> pd.DataFrame:
-        """Run two-sided Mann-Whitney U tests comparing baseline to each condition.
-
-        For each test condition, extracts modularity values and computes the
-        U statistic, p-value, and mean difference relative to the baseline.
-
-        Args:
-            baseline_condition: Baseline condition ID (default: "c0").
-            test_conditions: Conditions to test against the baseline. Defaults
-                to ["c1", "c3", "c4", "c8"].
-
-        Returns:
-            DataFrame with columns: Condition, Label, n_baseline, n_test,
-            Mean_Baseline, Mean_Test, Mean_Difference, U_statistic, p_value,
-            Significance.
-
-        Raises:
-            ValueError: If no data is found for the baseline condition.
-        """
-        if test_conditions is None:
-            test_conditions = TEST_CONDITIONS
-
-        baseline_data = (
-            self.df[self.df["condition"] == baseline_condition]["modularity"]
-            .dropna()
-        )
-        if baseline_data.empty:
-            raise ValueError(
-                f"No data found for baseline condition '{baseline_condition}'."
-            )
-
-        self.results = []
-        baseline_mean = float(baseline_data.mean())
-
-        for test_cond in test_conditions:
-            test_data = (
-                self.df[self.df["condition"] == test_cond]["modularity"].dropna()
-            )
-            if test_data.empty:
-                logger.warning("No data found for condition '%s'. Skipped.", test_cond)
-                continue
-
-            U_stat, p_value = stats.mannwhitneyu(
-                baseline_data, test_data, alternative="two-sided"
-            )
-
-            mean_test = float(test_data.mean())
-            mean_diff = mean_test - baseline_mean
-
-            self.results.append({
-                "Condition": test_cond,
-                "Label": CONDITION_LABELS.get(test_cond, test_cond),
-                "n_baseline": len(baseline_data),
-                "n_test": len(test_data),
-                "Mean_Baseline": round(baseline_mean, 6),
-                "Mean_Test": round(mean_test, 6),
-                "Mean_Difference": round(mean_diff, 6),
-                "U_statistic": round(float(U_stat), 2),
-                "p_value": round(float(p_value), 6),
-                "Significance": self._significance_flag(p_value),
-            })
-
-            logger.info(
-                "%s vs %s: Δμ=%.4f, U=%.2f, p=%.6f %s",
-                baseline_condition, test_cond, mean_diff, U_stat, p_value,
-                self._significance_flag(p_value),
-            )
-
-        return pd.DataFrame(self.results)
-
-    def print_results(self, verbose: bool = True) -> None:
-        """Print a formatted results table to stdout.
-
-        Args:
-            verbose: If True, show all columns; if False, compact view
-                (Condition, Label, Mean_Difference, p_value, Significance only).
-
-        Raises:
-            ValueError: If no results are available.
-        """
-        if not self.results:
-            raise ValueError("No results available. Run run_tests() first.")
-
-        df = pd.DataFrame(self.results)
-
-        print("\n" + "=" * 110)
-        print("MANN-WHITNEY U TEST RESULTS (Baseline: c0, Modularity)")
-        print("=" * 110)
-
-        if verbose:
-            display_df = df[
-                [
-                    "Condition",
-                    "Label",
-                    "Mean_Baseline",
-                    "Mean_Test",
-                    "Mean_Difference",
-                    "U_statistic",
-                    "p_value",
-                    "Significance",
-                ]
-            ]
-        else:
-            display_df = df[
-                ["Condition", "Label", "Mean_Difference", "p_value", "Significance"]
-            ]
-
-        print(display_df.to_string(index=False))
-        print("=" * 110)
-        print(
-            "Significance: *** p<0.001 (highly significant)"
-            ", ** p<0.01 (very significant)"
-            ", * p<0.05 (significant), ns (not significant)"
-        )
-        print("=" * 110 + "\n")
-
-    def save_results(self, output_csv: Union[str, Path]) -> None:
-        """Save hypothesis test results to CSV.
-
-        Args:
-            output_csv: Output CSV path (e.g., data/01_processed/stage_b_pvalues.csv).
-
-        Raises:
-            ValueError: If no results are available.
-        """
-        if not self.results:
-            raise ValueError("No results available. Run run_tests() first.")
-
-        df = pd.DataFrame(self.results)
-        output_csv = Path(output_csv).resolve()
-        output_csv.parent.mkdir(parents=True, exist_ok=True)
-
-        df.to_csv(output_csv, index=False)
-        logger.info(
-            "Test results saved — file: '%s', rows: %d",
-            output_csv, len(df),
-        )
-
-    def get_significant_conditions(self, alpha: float = 0.05) -> List[str]:
-        """Return condition IDs with statistically significant modularity shift.
-
-        Args:
-            alpha: Significance threshold (default: 0.05).
-
-        Returns:
-            List of condition IDs where p-value < alpha.
-        """
-        if not self.results:
-            raise ValueError("No results available. Run run_tests() first.")
-
-        df = pd.DataFrame(self.results)
-        return df[df["p_value"] < alpha]["Condition"].tolist()
-
+from sdt_netval.analysis import compare_to_baseline
 
 logging.basicConfig(
     level=logging.INFO,
@@ -242,16 +30,59 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-INPUT_CSV = Path(__file__).resolve().parents[1] / "data" / "01_processed" / "01_legacy_tomasevic" / "stage_b_raw.csv"
-OUTPUT_CSV = Path(__file__).resolve().parents[1] / "data" / "01_processed" / "01_legacy_tomasevic" / "stage_b_pvalues.csv"
+PROCESSED = Path(__file__).resolve().parents[1] / "data" / "01_processed"
+
+# Per-dataset wiring. `baseline_csv=None` means the baseline is the condition
+# `baseline_condition` inside the Stage B table (legacy layout).
+DATASETS = {
+    "legacy": {
+        "stage_b_csv": PROCESSED / "01_legacy_tomasevic" / "stage_b_raw.csv",
+        "baseline_csv": None,
+        "baseline_condition": "c0",
+        # the four conditions analysed in the thesis (None = every condition)
+        "conditions": ["c1", "c3", "c4", "c8"],
+        "output_csv": PROCESSED / "01_legacy_tomasevic" / "stage_b_pvalues.csv",
+    },
+    "cnr": {
+        "stage_b_csv": PROCESSED / "03_cnr_recsys_stageB" / "stage_b_raw.csv",
+        "baseline_csv": PROCESSED / "02_cnr_baseline_stageA" / "stage_a_raw.csv",
+        "baseline_condition": None,
+        "conditions": None,
+        "output_csv": PROCESSED / "03_cnr_recsys_stageB" / "stage_b_pvalues.csv",
+    },
+}
+METRICS = ["alpha_in_degree", "modularity", "average_clustering"]
+
+
+def run(dataset: str, correction: str = "holm") -> pd.DataFrame:
+    cfg = DATASETS[dataset]
+    data = pd.read_csv(cfg["stage_b_csv"])
+    baseline = cfg["baseline_condition"] or pd.read_csv(cfg["baseline_csv"])
+
+    results = compare_to_baseline(
+        data, baseline, metrics=METRICS, conditions=cfg["conditions"], correction=correction,
+    )
+
+    cfg["output_csv"].parent.mkdir(parents=True, exist_ok=True)
+    results.to_csv(cfg["output_csv"], index=False)
+    logger.info("Test results saved — file: '%s', rows: %d", cfg["output_csv"], len(results))
+    return results
 
 
 if __name__ == "__main__":
-    logger.info("=== Stage B — Hypothesis Testing ===")
-    tester = StageBHypothesisTesting(INPUT_CSV)
-    tester.run_tests()
-    tester.print_results(verbose=True)
-    tester.save_results(OUTPUT_CSV)
-    significant = tester.get_significant_conditions()
-    logger.info("Significant conditions (p<0.05): %s", significant)
-    logger.info("=== Hypothesis testing complete ===")
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("dataset", nargs="?", choices=DATASETS, default="legacy")
+    parser.add_argument(
+        "--correction", choices=["holm", "bonferroni", "none"], default="holm",
+        help="Multiple-comparison correction (raw p-values are always kept in 'p_value').",
+    )
+    args = parser.parse_args()
+
+    logger.info("=== Stage B — Hypothesis Testing (%s) ===", args.dataset)
+    results = run(args.dataset, args.correction)
+    with pd.option_context("display.width", 200, "display.max_columns", None):
+        print(results.round(4).to_string(index=False))
+    significant = results[results["significance"] != "ns"]
+    logger.info(
+        "Significant (%s correction): %d/%d tests", args.correction, len(significant), len(results)
+    )
