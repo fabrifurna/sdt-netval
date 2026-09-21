@@ -1,0 +1,89 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sdt-netval"
+dynamic = ["version"]
+description = "Topological validation of LLM-driven social simulations (Social Digital Twins): SNA metrics, baseline-vs-condition statistics and figures."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "fabrifurna" }]
+keywords = [
+    "social network analysis",
+    "agent-based modelling",
+    "network topology",
+    "digital twins",
+    "llm simulation",
+    "recommender systems",
+    "y-social",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: Sociology",
+    "Typing :: Typed",
+]
+dependencies = [
+    "networkx>=3.0",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "powerlaw>=1.5",
+    "matplotlib>=3.7",
+    "seaborn>=0.12",
+    "tqdm>=4.65",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.4",
+    "build",
+    "twine",
+]
+
+[project.urls]
+Homepage = "https://github.com/fabrifurna/sdt-netval"
+Repository = "https://github.com/fabrifurna/sdt-netval"
+Issues = "https://github.com/fabrifurna/sdt-netval/issues"
+Changelog = "https://github.com/fabrifurna/sdt-netval/blob/main/CHANGELOG.md"
+
+[project.scripts]
+sdt-netval = "sdt_netval.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "sdt_netval.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+sdt_netval = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = [
+    # third-party noise from the `powerlaw` package
+    "ignore:Standard error for the MLE:DeprecationWarning",
+    "ignore:Less than 2 unique data values:UserWarning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["notebooks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B"]

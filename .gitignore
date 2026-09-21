@@ -1,9 +1,12 @@
-# raw and processed data (SQLite runs, CSVs, figures)
-data/00_raw/
-data/01_processed/
-*.zip
-*.json
-*.csv
+# raw data files — contenuto ignorato, struttura cartelle tracciata via .gitkeep
+data/00_raw/**
+!data/00_raw/**/
+!data/00_raw/**/.gitkeep
+
+# output files — contenuto ignorato, struttura cartelle tracciata via .gitkeep
+data/01_processed/**
+!data/01_processed/**/
+!data/01_processed/**/.gitkeep
 
 # virtual environments
 venv/
@@ -13,7 +16,29 @@ env/
 # Python cache
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+
+# package build artifacts
+*.egg-info/
+dist/
+build/
+*.egg
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
 
 # OS files
 .DS_Store
 Thumbs.db
+
+# Claude Code local settings
+.claude/
+
+# Private working notes (thesis chapter drafts, context files)
+notes/
