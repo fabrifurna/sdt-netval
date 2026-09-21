@@ -7,23 +7,17 @@ per-condition summary statistics.
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
 from scipy import stats
 from tqdm import tqdm
 
-from sdt_netval import load_network, GraphMetrics
+from sdt_netval.adapters.loader import load_network
+from sdt_netval.core.metrics import KEY_METRICS, GraphMetrics
 
 logger = logging.getLogger(__name__)
-
-KEY_METRICS = [
-    "alpha_in_degree",
-    "modularity",
-    "average_clustering",
-    "density",
-]
 
 
 class StageBAnalyzer:
@@ -33,26 +27,46 @@ class StageBAnalyzer:
     (e.g., c0, c1, …, c10) contains M simulation run files. Produces a raw
     dataset (N×M rows) and a per-condition aggregated report.
 
-    Condition directories are identified by names starting with 'c' or
-    'condition_'. All file formats supported by load_network are accepted.
+    By default every subdirectory whose name starts with 'c' or 'condition_' is
+    treated as a condition; pass ``conditions`` to select subdirectories explicitly
+    (any naming scheme). All file formats supported by load_network are accepted.
 
     Args:
         base_dir: Path to the directory containing condition subdirectories.
+        conditions: Explicit list of subdirectory names to use as conditions, in
+            the desired order. Overrides the name-prefix auto-discovery.
+        tmp_dir: Directory used to extract SQLite databases from ZIP archives
+            (see ``load_network``). Defaults to SDT_TMPDIR, then the system temp dir.
 
     Raises:
         FileNotFoundError: If the directory does not exist.
-        ValueError: If no condition subdirectories are found.
+        ValueError: If no condition subdirectories are found, or an explicitly
+            requested condition does not exist.
     """
 
     _SUPPORTED_EXTENSIONS = (".sqlite", ".db", ".sqlite3", ".csv", ".zip")
     _CONDITION_PREFIXES = ("c", "condition_")
 
-    def __init__(self, base_dir: Union[str, Path]) -> None:
+    def __init__(
+        self,
+        base_dir: Union[str, Path],
+        conditions: Optional[Sequence[str]] = None,
+        tmp_dir: Optional[Union[str, Path]] = None,
+    ) -> None:
         self.base_dir = Path(base_dir).resolve()
         if not self.base_dir.is_dir():
             raise FileNotFoundError(f"Directory not found: '{self.base_dir}'")
 
-        self.conditions = self._discover_conditions()
+        self.tmp_dir = tmp_dir
+        if conditions is not None:
+            missing = [c for c in conditions if not (self.base_dir / c).is_dir()]
+            if missing:
+                raise ValueError(
+                    f"Condition directories not found in '{self.base_dir}': {missing}"
+                )
+            self.conditions = list(conditions)
+        else:
+            self.conditions = self._discover_conditions()
         if not self.conditions:
             raise ValueError(
                 f"No condition subdirectories found in '{self.base_dir}'. "
@@ -61,7 +75,7 @@ class StageBAnalyzer:
 
         self.results: List[Dict[str, Any]] = []
         logger.info(
-            "StageBAnalyzer initialized — %d conditions found in '%s'",
+            "StageBAnalyzer initialized: %d conditions found in '%s'",
             len(self.conditions), self.base_dir.name,
         )
 
@@ -85,7 +99,7 @@ class StageBAnalyzer:
         return db_path.stem
 
     def _process_single_run(self, db_path: Path) -> Dict[str, Any]:
-        G = load_network(db_path)
+        G = load_network(db_path, tmp_dir=self.tmp_dir)
         return GraphMetrics(G).generate_full_report()
 
     def process_all_runs(self) -> pd.DataFrame:
@@ -121,7 +135,7 @@ class StageBAnalyzer:
                         report["db_path"] = str(db_path)
                         self.results.append(report)
                         logger.debug(
-                            "Condition '%s', run '%s' — nodes: %d, edges: %d",
+                            "Condition '%s', run '%s': nodes: %d, edges: %d",
                             condition_id, run_id,
                             report.get("num_nodes", "?"),
                             report.get("num_edges", "?"),
@@ -141,7 +155,7 @@ class StageBAnalyzer:
 
         df = pd.DataFrame(self.results)
         n_ok = df.get("error", pd.Series(dtype=object)).isna().sum()
-        logger.info("Stage B completed — %d/%d runs successful.", n_ok, len(df))
+        logger.info("Stage B completed: %d/%d runs successful.", n_ok, len(df))
         return df
 
     def save_raw_results(self, output_csv: Union[str, Path]) -> None:
@@ -160,7 +174,7 @@ class StageBAnalyzer:
         output_csv.parent.mkdir(parents=True, exist_ok=True)
         df = pd.DataFrame(self.results)
         df.to_csv(output_csv, index=False)
-        logger.info("Raw results saved — file: '%s', rows: %d", output_csv, len(df))
+        logger.info("Raw results saved to '%s', rows: %d", output_csv, len(df))
 
     def compute_aggregated_metrics(
         self,
@@ -185,7 +199,10 @@ class StageBAnalyzer:
         df = pd.DataFrame(self.results)
         aggregated_rows = []
 
-        for condition_id in sorted(df["condition"].unique()):
+        # Follow the analyzer's own condition order (alphabetical when auto-discovered,
+        # user-defined when `conditions=` was given)
+        present = set(df["condition"])
+        for condition_id in [c for c in self.conditions if c in present]:
             cond_data = df[df["condition"] == condition_id]
             agg_row: Dict[str, Any] = {"condition": condition_id}
 
@@ -220,7 +237,7 @@ class StageBAnalyzer:
 
         result_df = pd.DataFrame(aggregated_rows)
         logger.info(
-            "Aggregation completed — %d conditions, %d metrics.",
+            "Aggregation completed: %d conditions, %d metrics.",
             len(result_df), len(metrics),
         )
         return result_df
@@ -238,7 +255,7 @@ class StageBAnalyzer:
         output_csv = Path(output_csv).resolve()
         output_csv.parent.mkdir(parents=True, exist_ok=True)
         agg_df.to_csv(output_csv, index=False)
-        logger.info("Aggregated results saved — file: '%s', rows: %d", output_csv, len(agg_df))
+        logger.info("Aggregated results saved to '%s', rows: %d", output_csv, len(agg_df))
 
     def full_sensitivity_report(
         self,

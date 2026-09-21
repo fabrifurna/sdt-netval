@@ -14,16 +14,10 @@ import pandas as pd
 from scipy import stats
 from tqdm import tqdm
 
-from sdt_netval import load_network, GraphMetrics
+from sdt_netval.adapters.loader import load_network
+from sdt_netval.core.metrics import KEY_METRICS, GraphMetrics
 
 logger = logging.getLogger(__name__)
-
-KEY_METRICS = [
-    "alpha_in_degree",
-    "modularity",
-    "average_clustering",
-    "density",
-]
 
 
 class StageAValidator:
@@ -35,6 +29,8 @@ class StageAValidator:
 
     Args:
         data_dir: Path to directory containing simulation files (.sqlite, .csv, .zip).
+        tmp_dir: Directory used to extract SQLite databases from ZIP archives
+            (see ``load_network``). Defaults to SDT_TMPDIR, then the system temp dir.
 
     Raises:
         FileNotFoundError: If directory does not exist.
@@ -43,8 +39,13 @@ class StageAValidator:
 
     _SUPPORTED_EXTENSIONS = (".sqlite", ".db", ".sqlite3", ".csv", ".zip")
 
-    def __init__(self, data_dir: Union[str, Path]) -> None:
+    def __init__(
+        self,
+        data_dir: Union[str, Path],
+        tmp_dir: Optional[Union[str, Path]] = None,
+    ) -> None:
         self.data_dir = Path(data_dir).resolve()
+        self.tmp_dir = tmp_dir
         if not self.data_dir.is_dir():
             raise FileNotFoundError(f"Directory not found: '{self.data_dir}'")
 
@@ -57,7 +58,7 @@ class StageAValidator:
 
         self.results: List[Dict[str, Any]] = []
         logger.info(
-            "StageAValidator initialized — %d files found in '%s'",
+            "StageAValidator initialized: %d files found in '%s'",
             len(self.db_paths), self.data_dir.name,
         )
 
@@ -74,7 +75,7 @@ class StageAValidator:
         return db_path.stem
 
     def _process_single_run(self, db_path: Path) -> Dict[str, Any]:
-        G = load_network(db_path)
+        G = load_network(db_path, tmp_dir=self.tmp_dir)
         return GraphMetrics(G).generate_full_report()
 
     def process_runs(self) -> pd.DataFrame:
@@ -103,7 +104,7 @@ class StageAValidator:
                 report["db_path"] = str(db_path)
                 self.results.append(report)
                 logger.info(
-                    "Run '%s' completed — nodes: %d, edges: %d",
+                    "Run '%s' completed: nodes: %d, edges: %d",
                     run_id,
                     report.get("num_nodes", "?"),
                     report.get("num_edges", "?"),
@@ -118,7 +119,7 @@ class StageAValidator:
 
         df = pd.DataFrame(self.results)
         n_ok = df.get("error", pd.Series(dtype=object)).isna().sum()
-        logger.info("Stage A completed — %d/%d runs successful.", n_ok, len(df))
+        logger.info("Stage A completed: %d/%d runs successful.", n_ok, len(df))
         return df
 
     def save_raw_results(self, output_csv: Union[str, Path]) -> None:
@@ -137,7 +138,7 @@ class StageAValidator:
         output_csv.parent.mkdir(parents=True, exist_ok=True)
         df = pd.DataFrame(self.results)
         df.to_csv(output_csv, index=False)
-        logger.info("Raw results saved — file: '%s', rows: %d", output_csv, len(df))
+        logger.info("Raw results saved to '%s', rows: %d", output_csv, len(df))
 
     def compute_stability_metrics(
         self,
@@ -199,7 +200,7 @@ class StageAValidator:
             })
 
         result_df = pd.DataFrame(rows).set_index("metric")
-        logger.info("Stability statistics computed — %d metrics.", len(result_df))
+        logger.info("Stability statistics computed: %d metrics.", len(result_df))
         return result_df
 
     def full_stability_report(

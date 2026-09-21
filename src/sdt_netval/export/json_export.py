@@ -41,7 +41,7 @@ def save_report_json(
     with open(path, "w", encoding="utf-8") as f:
         json.dump(serializable, f, indent=indent, ensure_ascii=False)
 
-    logger.info("Report saved as JSON — file: '%s'", path)
+    logger.info("Report saved as JSON: file '%s'", path)
 
 
 def _convert(obj: Any) -> Any:

@@ -1,18 +1,19 @@
 """Universal network loader for multi-agent simulation exports.
 
 Single entry-point: load_network(path) auto-detects the source format and
-returns a standardised nx.DiGraph. Internal parsers are private — callers
+returns a standardised nx.DiGraph. Internal parsers are private, callers
 never need to know which one ran.
 
 Supported inputs:
-  .sqlite / .db / .sqlite3  — SQLite agent databases (follow/unfollow resolution)
-  .zip                      — Archives containing a SQLite database or CSV edge list
-  .csv                      — Generic directed edge lists (source/target auto-detected)
+  .sqlite / .db / .sqlite3  - SQLite agent databases (follow/unfollow resolution)
+  .zip                      - Archives containing a SQLite database or CSV edge list
+  .csv                      - Generic directed edge lists (source/target auto-detected)
 """
 
 import contextlib
 import io
 import logging
+import os
 import sqlite3
 import tempfile
 import zipfile
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 _SUPPORTED = frozenset({".sqlite", ".db", ".sqlite3", ".zip", ".csv"})
 _DB_EXTENSIONS = frozenset({".db", ".sqlite", ".sqlite3"})
+_TMPDIR_ENV = "SDT_TMPDIR"
 _FOLLOW_ACTIONS = frozenset({"follow", "create"})
 _EDGE_KEYWORDS = frozenset({"edge", "follow", "link", "network", "relation"})
 
@@ -45,12 +47,13 @@ def load_network(
     source_col: str = "source",
     target_col: str = "target",
     edge_file: Optional[str] = None,
+    tmp_dir: Optional[Union[str, Path]] = None,
 ) -> nx.DiGraph:
     """Load a directed graph from any supported simulation export.
 
     Dispatches to the correct internal parser based on file extension.
     For ZIP archives, the router inspects the contents and delegates
-    automatically — callers never need to specify the internal format.
+    automatically, callers never need to specify the internal format.
 
     Args:
         path: Path to the input file (.sqlite, .db, .sqlite3, .zip, or .csv).
@@ -59,6 +62,10 @@ def load_network(
         target_col: [.csv] Column name for edge targets; falls back to auto-detection.
         edge_file: [.zip] Override auto-detection by naming a specific file inside the
             archive. Accepts .db/.sqlite (SQLite route) or .csv (edge-list route).
+        tmp_dir: [.zip] Directory used to extract the SQLite database of an archive.
+            Simulation databases can reach several GB, so pointing this to a large
+            secondary disk avoids filling the system drive. Falls back to the
+            SDT_TMPDIR environment variable, then to the system temp directory.
 
     Returns:
         Directed graph with node/edge attributes where the source format provides them.
@@ -84,7 +91,7 @@ def load_network(
     if ext in _DB_EXTENSIONS:
         return _parse_sqlite(p, end_round=end_round)
     if ext == ".zip":
-        return _parse_zip(p, edge_file=edge_file)
+        return _parse_zip(p, edge_file=edge_file, tmp_dir=tmp_dir)
     return _parse_csv(p, source_col=source_col, target_col=target_col)
 
 
@@ -96,7 +103,7 @@ def load_network(
 def _parse_sqlite(path: Path, end_round: Optional[int] = None) -> nx.DiGraph:
     where = f"WHERE CAST(round AS INTEGER) <= {int(end_round)}" if end_round else ""
 
-    # contextlib.closing ensures conn.close() is called — on Windows, sqlite3's
+    # contextlib.closing ensures conn.close() is called; on Windows, sqlite3's
     # context manager only commits/rolls back and leaves the file handle open,
     # which blocks tempfile cleanup when the DB was extracted from a ZIP
     with contextlib.closing(sqlite3.connect(path)) as conn:
@@ -129,15 +136,19 @@ def _parse_sqlite(path: Path, end_round: Optional[int] = None) -> nx.DiGraph:
     return G
 
 
-def _parse_zip(path: Path, edge_file: Optional[str] = None) -> nx.DiGraph:
+def _parse_zip(
+    path: Path,
+    edge_file: Optional[str] = None,
+    tmp_dir: Optional[Union[str, Path]] = None,
+) -> nx.DiGraph:
     with zipfile.ZipFile(path, "r") as zf:
         if edge_file:
             # Explicit override: trust the caller, route by entry extension
-            return _dispatch_zip_entry(zf, edge_file, path)
+            return _dispatch_zip_entry(zf, edge_file, path, tmp_dir)
 
         # Routing to specific parser based on archive contents to maintain
         # framework universality across simulation platforms
-        return _route_zip_contents(zf, zf.namelist(), path)
+        return _route_zip_contents(zf, zf.namelist(), path, tmp_dir)
 
 
 def _parse_csv(path: Path, source_col: str, target_col: str) -> nx.DiGraph:
@@ -154,7 +165,7 @@ def _parse_csv(path: Path, source_col: str, target_col: str) -> nx.DiGraph:
             f"Column(s) {missing} not found in '{path.name}' "
             f"and auto-detection also failed. "
             f"Available columns: {list(df.columns)}"
-        )
+        ) from None
     return _build_digraph(df, src, dst)
 
 
@@ -167,13 +178,14 @@ def _route_zip_contents(
     zf: zipfile.ZipFile,
     names: list[str],
     archive_path: Path,
+    tmp_dir: Optional[Union[str, Path]] = None,
 ) -> nx.DiGraph:
-    # Examine only top-level entries — nested files belong to logs or sub-archives
+    # Examine only top-level entries, nested files belong to logs or sub-archives
     top_level = [n for n in names if "/" not in n and "\\" not in n]
 
     db_files = [n for n in top_level if Path(n).suffix.lower() in _DB_EXTENSIONS]
     if db_files:
-        return _parse_zip_sqlite(zf, db_files[0], archive_path)
+        return _parse_zip_sqlite(zf, db_files[0], archive_path, tmp_dir)
 
     csv_files = [
         n for n in names
@@ -203,32 +215,46 @@ def _dispatch_zip_entry(
     zf: zipfile.ZipFile,
     entry: str,
     archive_path: Path,
+    tmp_dir: Optional[Union[str, Path]] = None,
 ) -> nx.DiGraph:
     ext = Path(entry).suffix.lower()
     if ext in _DB_EXTENSIONS:
-        return _parse_zip_sqlite(zf, entry, archive_path)
+        return _parse_zip_sqlite(zf, entry, archive_path, tmp_dir)
     if ext == ".csv":
         return _parse_zip_csv(zf, entry, archive_path)
     raise ValueError(
-        f"Cannot parse '{entry}' from archive '{archive_path.name}' — "
+        f"Cannot parse '{entry}' from archive '{archive_path.name}': "
         f"unsupported entry extension '{ext}'. "
         "Expected .db/.sqlite (SQLite) or .csv (edge list)."
     )
+
+def _resolve_tmp_dir(tmp_dir: Optional[Union[str, Path]]) -> Optional[Path]:
+    chosen = tmp_dir if tmp_dir is not None else os.environ.get(_TMPDIR_ENV)
+    if not chosen:
+        return None
+    path = Path(chosen).expanduser().resolve()
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def _parse_zip_sqlite(
     zf: zipfile.ZipFile,
     db_name: str,
     archive_path: Path,
+    tmp_dir: Optional[Union[str, Path]] = None,
 ) -> nx.DiGraph:
-    # Using tempfile to prevent I/O pollution when inspecting archives —
-    # only the database is extracted; logs and config files stay inside the ZIP.
+    # Only the database is extracted (logs and configs stay inside the ZIP) and it
+    # lives in a volatile directory removed on exit. Simulation databases can be
+    # several GB, hence the configurable location (tmp_dir / SDT_TMPDIR).
     # ignore_cleanup_errors=True guards against Windows handle-release races
     # even after the sqlite3 connection is explicitly closed via contextlib.closing
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+    base = _resolve_tmp_dir(tmp_dir)
+    with tempfile.TemporaryDirectory(dir=base, ignore_cleanup_errors=True) as tmp:
         zf.extract(db_name, tmp)
         db_path = Path(tmp) / db_name
-        logger.info("Extracted '%s' from '%s' → volatile temp dir", db_name, archive_path.name)
+        logger.info(
+            "Extracted '%s' from '%s' → volatile dir '%s'", db_name, archive_path.name, tmp
+        )
         return _parse_sqlite(db_path)
 
 
@@ -256,7 +282,7 @@ def _parse_zip_csv(
 
 def _resolve_follow_sequence(df: pd.DataFrame) -> pd.DataFrame:
     # groupby-last on a pre-sorted frame resolves the full follow/unfollow
-    # history in a single pass — significantly faster than pair-by-pair iteration
+    # history in a single pass, much faster than pair-by-pair iteration
     # on large follow tables (1000+ agent simulations)
     df = df.copy()
     df["action"] = df["action"].str.strip().str.lower()
@@ -285,7 +311,7 @@ def _detect_edge_columns(df: pd.DataFrame, filename: str) -> tuple[str, str]:
 
 def _build_digraph(df: pd.DataFrame, source_col: str, target_col: str) -> nx.DiGraph:
     attr_cols = [c for c in df.columns if c not in (source_col, target_col)]
-    # from_pandas_edgelist uses internal vectorised ops — much faster than iterrows
+    # from_pandas_edgelist uses internal vectorised ops, much faster than iterrows
     # for the large edge tables produced by thousand-agent simulations
     G = nx.from_pandas_edgelist(
         df,
