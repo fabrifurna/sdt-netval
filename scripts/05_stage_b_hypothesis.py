@@ -51,7 +51,7 @@ DATASETS = {
         "output_csv": PROCESSED / "03_cnr_recsys_stageB" / "stage_b_pvalues.csv",
     },
 }
-METRICS = ["alpha_in_degree", "modularity", "average_clustering"]
+METRICS = ["alpha_in_degree", "modularity", "average_clustering", "density"]
 
 
 def run(dataset: str, correction: str = "holm") -> pd.DataFrame:
