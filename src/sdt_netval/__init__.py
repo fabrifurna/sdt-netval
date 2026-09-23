@@ -20,13 +20,17 @@ Multi-run studies (baseline vs experimental conditions)::
     )
 
 Figures live in ``sdt_netval.viz`` (imported on demand to keep this import light).
+
+Every name below is resolved lazily, on first access (PEP 562). A plain
+``import sdt_netval``, or importing a submodule such as ``sdt_netval.cli`` (which
+Python resolves by first running this file), does not pull in pandas, networkx,
+scipy, powerlaw or matplotlib until something actually asks for them.
 """
 
-from sdt_netval.adapters import load_network
-from sdt_netval.analysis import compare_to_baseline
-from sdt_netval.core.metrics import KEY_METRICS, GraphMetrics
-from sdt_netval.export import save_report_json
-from sdt_netval.pipeline import StageAValidator, StageBAnalyzer
+import importlib
+from typing import Any
+
+__version__ = "0.1.0"
 
 __all__ = [
     "load_network",
@@ -37,4 +41,27 @@ __all__ = [
     "compare_to_baseline",
     "save_report_json",
 ]
-__version__ = "0.1.0"
+
+# name -> submodule that defines it
+_LAZY_ATTRS = {
+    "load_network": "sdt_netval.adapters",
+    "GraphMetrics": "sdt_netval.core.metrics",
+    "KEY_METRICS": "sdt_netval.core.metrics",
+    "StageAValidator": "sdt_netval.pipeline",
+    "StageBAnalyzer": "sdt_netval.pipeline",
+    "compare_to_baseline": "sdt_netval.analysis",
+    "save_report_json": "sdt_netval.export",
+}
+
+
+def __getattr__(name: str) -> Any:
+    module_name = _LAZY_ATTRS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(importlib.import_module(module_name), name)
+    globals()[name] = value  # cache: the import only happens on first access
+    return value
+
+
+def __dir__() -> list:
+    return sorted(set(globals()) | set(_LAZY_ATTRS))

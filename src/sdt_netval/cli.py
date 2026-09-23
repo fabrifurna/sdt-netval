@@ -13,10 +13,23 @@ Usage examples:
 import argparse
 import logging
 import sys
+from importlib import metadata
 from pathlib import Path
 from typing import Optional, Sequence
 
-from sdt_netval import __version__
+
+def _package_version() -> str:
+    # Reads the version from the installed package's metadata instead of doing
+    # `from sdt_netval import __version__`, which would import the whole package
+    # (and with it pandas, networkx, scipy, powerlaw, and matplotlib via powerlaw)
+    # just to answer `--version` or print `--help`.
+    try:
+        return metadata.version("sdt-netval")
+    except metadata.PackageNotFoundError:
+        # Not installed (e.g. running from a source checkout without `pip install -e .`)
+        from sdt_netval import __version__
+
+        return __version__
 
 
 def _make_streams_tolerant() -> None:
@@ -276,7 +289,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         description="Universal topology validator for multi-agent simulation networks.",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Show detailed logs.")
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {_package_version()}")
     tmp_help = (
         "Directory used to extract databases from .zip archives (they can be several GB). "
         "Defaults to $SDT_TMPDIR, then the system temp dir."

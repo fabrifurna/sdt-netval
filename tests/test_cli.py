@@ -11,6 +11,32 @@ def test_version_flag(capsys):
     assert sdt_netval.__version__ in capsys.readouterr().out
 
 
+def test_version_and_help_skip_the_heavy_imports():
+    # Regression: `from sdt_netval import __version__` at module level used to import
+    # the whole package (pandas, networkx, scipy, powerlaw, and matplotlib via
+    # powerlaw) just to answer --version or print --help.
+    import subprocess
+    import sys
+
+    heavy = ("pandas", "numpy", "networkx", "scipy", "powerlaw", "matplotlib", "tqdm")
+    code = (
+        "import sys\n"
+        "from sdt_netval.cli import main\n"
+        "try:\n"
+        "    main(['--version'])\n"
+        "except SystemExit:\n"
+        "    pass\n"
+        # stderr, not stdout: --version itself prints to stdout and we don't want
+        # the two interleaved
+        f"print(','.join(m for m in {heavy!r} if m in sys.modules), file=sys.stderr)\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=60
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stderr.strip() == "", f"heavy imports triggered: {proc.stderr.strip()}"
+
+
 def test_analyze_prints_metrics_and_saves_json(make_runs, tmp_path, capsys):
     db = next(make_runs("one", n_runs=1).glob("*.sqlite"))
     out = tmp_path / "res"
