@@ -39,8 +39,8 @@ DATASETS = {
         "stage_b_csv": PROCESSED / "01_legacy_tomasevic" / "stage_b_raw.csv",
         "baseline_csv": None,
         "baseline_condition": "c0",
-        # the four conditions analysed in the thesis (None = every condition)
-        "conditions": ["c1", "c3", "c4", "c8"],
+        # every sensitivity condition c1..c10 against c0 (Holm over the ten comparisons)
+        "conditions": None,
         "output_csv": PROCESSED / "01_legacy_tomasevic" / "stage_b_pvalues.csv",
     },
     "cnr": {

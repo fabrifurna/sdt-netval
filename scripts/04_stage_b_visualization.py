@@ -26,8 +26,13 @@ CONDITION_LABELS = {
     "c1": "Neutral Persona",
     "c3": "Low Temperature",
     "c4": "High Temperature",
-    "c8": "Aggressive RecSys",
+    "c8": "High Comment-to-Post Ratio",
 }
+# Labels follow the sensitivity conditions listed in the reproducibility package of
+# Tomasevic et al. (github.com/atomashevic/voat-simulation): c0 baseline, c1 neutral persona,
+# c2 no-politics persona, c3 low temperature, c4 high temperature, c5 flat budget slope,
+# c6 steep budget slope, c7 low comment-to-post ratio, c8 high comment-to-post ratio,
+# c9 low churn, c10 high churn.
 
 
 class StageBVisualizer:
